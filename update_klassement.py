@@ -35,7 +35,7 @@ def get_current_week(overall_path):
     if not os.path.isfile(overall_path):
         return 1
     df = pd.read_excel(overall_path, sheet_name="Klassement")
-    week_cols = [col for col in df.columns if col.startswith("week_")]
+    week_cols = [col for col in df.columns if str(col).isdigit()]
     return len(week_cols) + 1
 
 def update_klassement():
@@ -43,7 +43,6 @@ def update_klassement():
     uitslag = load_result()
     week_num = get_current_week(KLASSEMENT_FILE)
     week_col = str(week_num)
-
 
     punten_per_rijder = []
 
@@ -65,47 +64,53 @@ def update_klassement():
 
     punten_df = pd.DataFrame(punten_per_rijder)
 
-    # Start met nieuwe bestand of lees bestaand in
     if os.path.isfile(KLASSEMENT_FILE):
         klassement_df = pd.read_excel(KLASSEMENT_FILE, sheet_name="Klassement")
     else:
         klassement_df = deelnemers[['naam', 'bib', 'klasse', 'categorie']].copy()
 
-    # Voeg nieuwe week toe
     klassement_df = klassement_df.merge(punten_df, on='bib', how='left')
     klassement_df[week_col] = klassement_df[week_col].fillna(MAX_POINTS)
 
-    # Opslaan met totalen en top 60
-    klassement_df['total'] = klassement_df.filter(like='week_').sum(axis=1)
+    week_cols = [col for col in klassement_df.columns if str(col).isdigit()]
+    week_cols = sorted(week_cols, key=int)
 
-    week_cols = [col for col in klassement_df.columns if col.startswith("week_")]
+    klassement_df['total'] = klassement_df[week_cols].sum(axis=1)
+
     if week_cols:
         half = len(week_cols) // 2
         klassement_df['eerst_heft'] = klassement_df[week_cols[:half]].sum(axis=1)
         klassement_df['tweede_heft'] = klassement_df[week_cols[half:]].sum(axis=1)
 
-
-    # Sorteren
     klassement_df = klassement_df.sort_values(by=['klasse', 'total'])
 
-    # Opslaan naar Excel
     with pd.ExcelWriter(KLASSEMENT_FILE, engine='openpyxl', mode='w') as writer:
         klassement_df.to_excel(writer, sheet_name="Klassement", index=False)
 
-    # Highlight DAM rows in pink
     wb = load_workbook(KLASSEMENT_FILE)
     sheet = wb['Klassement']
 
     pink_fill = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
+    green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+    blue_fill = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
 
-    for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row):  # Skipping header row
+    # Highlight DAM rows
+    for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row):
         for cell in row:
-            if cell.column == 4:  # Assuming 'categorie' is the 4th column (adjust if necessary)
-                if cell.value == 'DAM':
-                    for c in row:  # Apply pink fill to the entire row
-                        c.fill = pink_fill
+            if cell.column == 4 and cell.value == 'DAM':
+                for c in row:
+                    c.fill = pink_fill
+                break  # No need to check further cells in this row
 
-    # Save the file after applying the style
+    # Highlight week columns
+    header = [cell.value for cell in sheet[1]]
+    for idx, col_name in enumerate(header, start=1):
+        if str(col_name).isdigit():
+            week_number = int(col_name)
+            fill = green_fill if week_number <= 4 else blue_fill
+            for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row):
+                row[idx - 1].fill = fill
+
     wb.save(KLASSEMENT_FILE)
 
     print(f"✅ Week {week_num} toegevoegd aan {KLASSEMENT_FILE}")
