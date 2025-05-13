@@ -3,51 +3,23 @@ import os
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
 
-MAX_POINTS = 80
-DEELNEMERS_FILE = "Deelnemers/deelnemerslijst 2025.xlsx"
-RESULT_FILE = "Result/finish.xlsx"
+from utils import (
+    load_deelnemers,
+    load_result,
+    get_current_week,
+    load_template_column_order,
+    MAX_POINTS,
+    DEELNEMERS_FILE,
+    RESULT_FILE,
+    TEMPLATE_FILE
+)
 KLASSEMENT_FILE = "klassement_2025.xlsx"
-TEMPLATE_FILE = "Template/klassement.xlsx"
 IS_SECOND_PERIOD_STARTED = False
 
-def load_deelnemers():
-    df = pd.read_excel(DEELNEMERS_FILE, header=4)
-    df.columns = df.columns.str.strip().str.lower()
-    df = df.rename(columns={
-        'number': 'bib',
-        'name': 'naam',
-        'klasse': 'klasse',
-        'cat': 'categorie',
-        'team': 'team'
-    })
-    df = df.dropna(subset=['bib', 'naam', 'klasse'])
-    df['naam'] = df['naam'].str.strip().str.lower()
-    df['bib'] = df['bib'].astype(int)
-    return df
-
-def load_result():
-    df = pd.read_excel(RESULT_FILE)
-    df.columns = df.columns.str.strip().str.lower()
-    df = df.rename(columns={'pl': 'plaats', 'bib': 'bib', 'naam': 'naam'})
-    df['bib'] = pd.to_numeric(df['bib'], errors='coerce').astype('Int64')
-    df = df.dropna(subset=['bib', 'plaats'])
-    return df
-
-def get_current_week(overall_path):
-    if not os.path.isfile(overall_path):
-        return 1
-    df = pd.read_excel(overall_path, sheet_name="Regelmatigheidscriterium")
-    week_cols = [col for col in df.columns if str(col).isdigit()]
-    return len(week_cols) + 1
-
-def load_template_column_order():
-    template_df = pd.read_excel(TEMPLATE_FILE, sheet_name=0, nrows=0)
-    return [col for col in template_df.columns if not str(col).startswith("Unnamed")]
-
-def update_klassement():
+def generate_regelmatigheidscriterium():
     deelnemers = load_deelnemers()
     uitslag = load_result()
-    week_num = get_current_week(KLASSEMENT_FILE)
+    week_num = get_current_week(KLASSEMENT_FILE, sheet_name="Regelmatigheidscriterium")
     week_col = str(week_num)
 
     punten_per_rijder = []
@@ -178,4 +150,4 @@ def update_klassement():
     print(f"✅ Week {week_num} toegevoegd aan {KLASSEMENT_FILE}")
 
 if __name__ == '__main__':
-    update_klassement()
+    generate_regelmatigheidscriterium()
