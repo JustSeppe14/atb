@@ -32,7 +32,7 @@ def generate_regelmatigheidscriterium():
 
         punten = {}
         for i, row in enumerate(klasse_result.itertuples(), start=1):
-            punten[row.bib] = i if i < MAX_POINTS else MAX_POINTS
+            punten[row.bib] = i if i < 60 else 60
 
         for _, rijder in klasse_deelnemers.iterrows():
             punten_per_rijder.append({

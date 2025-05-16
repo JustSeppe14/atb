@@ -32,7 +32,7 @@ def generate_klassement():
 
         punten = {}
         for i, row in enumerate(klasse_result.itertuples(), start=1):
-            punten[row.bib] = i if i < MAX_POINTS else MAX_POINTS
+            punten[row.bib] = i if i < 60 else 60  # Cap at 60 points for finishers
 
         for _, rijder in klasse_deelnemers.iterrows():
             punten_per_rijder.append({
@@ -40,14 +40,14 @@ def generate_klassement():
                 'klasse': rijder['klasse'],
                 'naam': rijder['naam'],
                 'categorie': rijder['categorie'],
-                week_col: punten.get(rijder['bib'], MAX_POINTS)
+                week_col: punten.get(rijder['bib'], MAX_POINTS)  # 80 for non-finishers
             })
 
     punten_df = pd.DataFrame(punten_per_rijder)
 
     # Accumulate all weeks
     all_weeks = list(range(1, current_week + 1))
-    for week in all_weeks[1:]:  # From week 2 onwards
+    for week in all_weeks[1:]:
         result_path = f"Results/finish.xlsx"
         if not os.path.exists(result_path):
             continue
@@ -63,7 +63,7 @@ def generate_klassement():
 
             punten = {}
             for i, row in enumerate(klasse_result.itertuples(), start=1):
-                punten[row.bib] = i if i < MAX_POINTS else MAX_POINTS
+                punten[row.bib] = i if i < 60 else 60  # Cap at 60 points
 
             for _, rijder in klasse_deelnemers.iterrows():
                 mask = (punten_df['bib'] == rijder['bib']) & (punten_df['klasse'] == rijder['klasse'])
@@ -85,32 +85,33 @@ def generate_klassement():
     punten_df['1e Periode'] = punten_df[first_period_weeks].sum(axis=1)
     punten_df['2e Periode'] = punten_df[second_period_weeks].sum(axis=1)
 
-    # Split full vs incomplete
-    full_mask = punten_df[week_cols].apply(lambda row: all(v < MAX_POINTS for v in row), axis=1)
-    full_df = punten_df[full_mask].copy()
-    incomplete_df = punten_df[~full_mask].copy()
+    # Determine X-class eligibility: <5 times MAX_POINTS → has participated ≥5 times
+    x_group_mask = punten_df[week_cols].apply(lambda row: sum(v == MAX_POINTS for v in row) < 5, axis=1)
 
-    # Rank full participants
-    full_df['Plaats Klasse'] = (
-        full_df.sort_values(by=['klasse', 'Totaal'])
+    x_group_df = punten_df[x_group_mask].copy()
+    regular_df = punten_df[~x_group_mask].copy()
+
+    # Rank regular participants
+    regular_df['Plaats Klasse'] = (
+        regular_df.sort_values(by=['klasse', 'Totaal'])
         .groupby('klasse')
         .cumcount() + 1
     )
 
-    # Reassign incomplete participants to pseudo-classes
+    # Reassign X-group participants to pseudo-classes XA, XB, ...
     unique_klasses = sorted(punten_df['klasse'].unique())
     klasse_to_letter = {k: f"X{chr(65+i)}" for i, k in enumerate(unique_klasses)}
-    incomplete_df['klasse'] = incomplete_df['klasse'].map(klasse_to_letter)
+    x_group_df['klasse'] = x_group_df['klasse'].map(klasse_to_letter)
 
-    # Rank incomplete participants
-    incomplete_df['Plaats Klasse'] = (
-        incomplete_df.sort_values(by=['klasse', 'Totaal'])
+    # Rank X-group participants
+    x_group_df['Plaats Klasse'] = (
+        x_group_df.sort_values(by=['klasse', 'Totaal'])
         .groupby('klasse')
         .cumcount() + 1
     )
 
     # Combine and sort
-    combined_df = pd.concat([full_df, incomplete_df], ignore_index=True)
+    combined_df = pd.concat([regular_df, x_group_df], ignore_index=True)
     combined_df = combined_df.sort_values(by=['klasse', 'Totaal'])
 
     # Rename for Excel
