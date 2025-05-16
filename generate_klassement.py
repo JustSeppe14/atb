@@ -23,106 +23,89 @@ def generate_klassement():
     current_week = get_current_week(KLASSEMENT_FILE, sheet_name="Klassement")
     week_col = str(current_week)
 
-    punten_per_rijder = []
+    # Load existing klassement data if available, else create from deelnemers
+    if os.path.isfile(KLASSEMENT_FILE):
+        klassement_df = pd.read_excel(KLASSEMENT_FILE, sheet_name="Klassement")
+        klassement_df = klassement_df.rename(columns={
+            'Nr.': 'bib',
+            'Naam': 'naam',
+            'Klasse': 'klasse',
+            'Cat.': 'categorie'
+        })
+    else:
+        klassement_df = deelnemers[['naam', 'bib', 'klasse', 'categorie']].copy()
 
+    # Ensure all participants from deelnemers are included
+    klassement_df = deelnemers[['naam', 'bib', 'klasse', 'categorie']].merge(
+        klassement_df, on=['bib', 'naam', 'klasse', 'categorie'], how='left'
+    ).fillna(MAX_POINTS)
+
+    # Calculate points for the current week only
+    punten_per_rijder = []
     for klasse in deelnemers['klasse'].unique():
         klasse_deelnemers = deelnemers[deelnemers['klasse'] == klasse]
         klasse_bibs = set(klasse_deelnemers['bib'])
-        klasse_result = uitslag[uitslag['bib'].isin(klasse_bibs)].sort_values(by='plaats')
+        klasse_result = uitslag[uitslag['bib'].isin(klasse_bibs)].copy()
+        klasse_result['rank_in_class'] = klasse_result['plaats'].rank(method='first').astype(int)
 
         punten = {}
-        for i, row in enumerate(klasse_result.itertuples(), start=1):
-            punten[row.bib] = i if i < 60 else 60  # Cap at 60 points for finishers
+        for row in klasse_result.itertuples():
+            punten[row.bib] = row.rank_in_class if row.rank_in_class < 60 else 60
 
         for _, rijder in klasse_deelnemers.iterrows():
             punten_per_rijder.append({
                 'bib': rijder['bib'],
-                'klasse': rijder['klasse'],
-                'naam': rijder['naam'],
-                'categorie': rijder['categorie'],
-                week_col: punten.get(rijder['bib'], MAX_POINTS)  # 80 for non-finishers
+                week_col: punten.get(rijder['bib'], MAX_POINTS)
             })
 
-    punten_df = pd.DataFrame(punten_per_rijder)
+    current_week_points_df = pd.DataFrame(punten_per_rijder)
 
-    # Accumulate all weeks
-    all_weeks = list(range(1, current_week + 1))
-    for week in all_weeks[1:]:
-        result_path = f"Results/finish.xlsx"
-        if not os.path.exists(result_path):
-            continue
-        global RESULT_FILE
-        RESULT_FILE = result_path
-        extra_result = load_result()
+    # Update or add the current week column in klassement_df
+    klassement_df = klassement_df.merge(current_week_points_df, on='bib', how='left')
+    klassement_df[week_col] = klassement_df[week_col].fillna(klassement_df.get(week_col, MAX_POINTS))
 
-        week_col = str(week)
-        for klasse in deelnemers['klasse'].unique():
-            klasse_deelnemers = deelnemers[deelnemers['klasse'] == klasse]
-            klasse_bibs = set(klasse_deelnemers['bib'])
-            klasse_result = extra_result[extra_result['bib'].isin(klasse_bibs)].sort_values(by='plaats')
+    # Get all week columns as digits, excluding non-numeric columns
+    week_cols = [col for col in klassement_df.columns if str(col).isdigit()]
+    week_cols = sorted(week_cols, key=int)
 
-            punten = {}
-            for i, row in enumerate(klasse_result.itertuples(), start=1):
-                punten[row.bib] = i if i < 60 else 60  # Cap at 60 points
+    # Fill missing week columns with MAX_POINTS to avoid NaNs
+    klassement_df[week_cols] = klassement_df[week_cols].fillna(MAX_POINTS)
 
-            for _, rijder in klasse_deelnemers.iterrows():
-                mask = (punten_df['bib'] == rijder['bib']) & (punten_df['klasse'] == rijder['klasse'])
-                punten_df.loc[mask, week_col] = punten.get(rijder['bib'], MAX_POINTS)
-
-    week_cols = [col for col in punten_df.columns if str(col).isdigit()]
-    punten_df[week_cols] = punten_df[week_cols].fillna(MAX_POINTS)
-
-    # Total and period sums
-    punten_df['Totaal'] = punten_df[week_cols].sum(axis=1)
+    # Calculate totals and period sums
+    klassement_df['Totaal'] = klassement_df[week_cols].sum(axis=1)
 
     if IS_SECOND_PERIOD_STARTED:
-        first_period_weeks = [col for col in week_cols if int(col) < week_cols[-1]]
-        second_period_weeks = [col for col in week_cols if int(col) >= week_cols[-1]]
+        # Assuming second period starts at a certain week number
+        # Here you can define the exact week number where period 2 starts
+        second_period_start = week_cols[-1]  # Or any custom logic
+        first_period_weeks = [col for col in week_cols if int(col) < int(second_period_start)]
+        second_period_weeks = [col for col in week_cols if int(col) >= int(second_period_start)]
     else:
         first_period_weeks = week_cols
         second_period_weeks = []
 
-    punten_df['1e Periode'] = punten_df[first_period_weeks].sum(axis=1)
-    punten_df['2e Periode'] = punten_df[second_period_weeks].sum(axis=1)
+    klassement_df['1e Periode'] = klassement_df[first_period_weeks].sum(axis=1)
+    klassement_df['2e Periode'] = klassement_df[second_period_weeks].sum(axis=1)
 
-    # Determine X-class eligibility: <5 times MAX_POINTS → has participated ≥5 times
-    x_group_mask = punten_df[week_cols].apply(lambda row: sum(v == MAX_POINTS for v in row) < 5, axis=1)
-
-    x_group_df = punten_df[x_group_mask].copy()
-    regular_df = punten_df[~x_group_mask].copy()
-
-    # Rank regular participants
-    regular_df['Plaats Klasse'] = (
-        regular_df.sort_values(by=['klasse', 'Totaal'])
+    # Compute rank per klasse
+    klassement_df['Plaats Klasse'] = (
+        klassement_df.sort_values(by=['klasse', 'Totaal'])
         .groupby('klasse')
         .cumcount() + 1
     )
 
-    # Reassign X-group participants to pseudo-classes XA, XB, ...
-    unique_klasses = sorted(punten_df['klasse'].unique())
-    klasse_to_letter = {k: f"X{chr(65+i)}" for i, k in enumerate(unique_klasses)}
-    x_group_df['klasse'] = x_group_df['klasse'].map(klasse_to_letter)
+    # Sort by klasse and total points
+    klassement_df = klassement_df.sort_values(by=['klasse', 'Totaal'])
 
-    # Rank X-group participants
-    x_group_df['Plaats Klasse'] = (
-        x_group_df.sort_values(by=['klasse', 'Totaal'])
-        .groupby('klasse')
-        .cumcount() + 1
-    )
-
-    # Combine and sort
-    combined_df = pd.concat([regular_df, x_group_df], ignore_index=True)
-    combined_df = combined_df.sort_values(by=['klasse', 'Totaal'])
-
-    # Rename for Excel
-    combined_df = combined_df.rename(columns={
+    # Rename columns back for Excel export
+    klassement_df = klassement_df.rename(columns={
         'bib': 'Nr.',
         'naam': 'Naam',
         'klasse': 'Klasse',
         'categorie': 'Cat.'
     })
 
-    # Column order
+    # Final column order
     final_column_order = load_template_column_order()
     if 'Plaats Klasse' not in final_column_order:
         try:
@@ -131,12 +114,13 @@ def generate_klassement():
         except ValueError:
             final_column_order.append('Plaats Klasse')
 
+    # Add any week columns not in template order at the end
     final_cols = final_column_order + [col for col in week_cols if col not in final_column_order]
-    combined_df = combined_df[[col for col in final_cols if col in combined_df.columns]]
+    klassement_df = klassement_df[[col for col in final_cols if col in klassement_df.columns]]
 
-    # Write to Excel
+    # Write updated sheet, replacing only the 'Klassement' sheet
     with pd.ExcelWriter(KLASSEMENT_FILE, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
-        combined_df.to_excel(writer, sheet_name="Klassement", index=False)
+        klassement_df.to_excel(writer, sheet_name="Klassement", index=False)
 
     # Formatting
     wb = load_workbook(KLASSEMENT_FILE)
@@ -151,14 +135,15 @@ def generate_klassement():
             for cell in row:
                 cell.fill = pink_fill
 
-    for idx, col_name in enumerate(sheet[1], start=1):
-        if str(col_name.value).isdigit():
-            fill = green_fill if int(col_name.value) <= 4 else blue_fill
+    header = [cell.value for cell in sheet[1]]
+    for idx, col_name in enumerate(header, start=1):
+        if str(col_name).isdigit():
+            fill = green_fill if int(col_name) <= 4 else blue_fill
             for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row):
                 row[idx - 1].fill = fill
 
     wb.save(KLASSEMENT_FILE)
-    print(f"✅ Klassement-tab met volledige én onvolledige deelnemers toegevoegd aan {KLASSEMENT_FILE}")
+    print(f"✅ Klassement updated with week {current_week} in {KLASSEMENT_FILE}")
 
 if __name__ == '__main__':
     generate_klassement()
