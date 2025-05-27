@@ -98,9 +98,9 @@ def generate_klassement():
         )
 
     # Calculate class rankings
-    klassement_df['Plaats Klasse'] = (
-        klassement_df.groupby('klasse').cumcount() + 1
-    )
+   # Calculate class rankings based on 'Totaal' within each 'klasse'
+    klassement_df['Plaats Klasse'] = klassement_df.groupby('klasse')['Totaal'].rank(method='min', ascending=True).astype(int)
+
     
     # Sort by class and total points first (this determines the Excel file order)
     klassement_df = klassement_df.sort_values(by=['klasse', 'Totaal'])
