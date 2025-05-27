@@ -14,8 +14,17 @@ from utils import (
     TEMPLATE_FILE
 )
 
-KLASSEMENT_FILE = "klassement_2025.xlsx"
+KLASSEMENT_FILE = "klassement_totaal_2025.xlsx"  # 👈 Nieuw apart bestand
 IS_SECOND_PERIOD_STARTED = False
+
+
+def sum_without_worst(row, cols):
+    results = row[cols].values
+    if len(results) > 1:
+        return results.sum() - results.max()
+    else:
+        return results.sum()
+
 
 def generate_klassement():
     deelnemers = load_deelnemers()
@@ -23,24 +32,14 @@ def generate_klassement():
     current_week = get_current_week(KLASSEMENT_FILE, sheet_name="Klassement")
     week_col = str(current_week)
 
-    # Load existing klassement data if available, else create from deelnemers
-    if os.path.isfile(KLASSEMENT_FILE):
-        klassement_df = pd.read_excel(KLASSEMENT_FILE, sheet_name="Klassement")
-        klassement_df = klassement_df.rename(columns={
-            'Nr.': 'bib',
-            'Naam': 'naam',
-            'Klasse': 'klasse',
-            'Cat.': 'categorie'
-        })
-    else:
-        klassement_df = deelnemers[['naam', 'bib', 'klasse', 'categorie']].copy()
+    deelnemers = deelnemers.rename(columns={
+        'Nr.': 'bib',
+        'number': 'bib',
+        'Naam': 'naam',
+        'Klasse': 'klasse',
+        'Cat.': 'categorie'
+    })
 
-    # Ensure all participants from deelnemers are included
-    klassement_df = deelnemers[['naam', 'bib', 'klasse', 'categorie']].merge(
-        klassement_df, on=['bib', 'naam', 'klasse', 'categorie'], how='left'
-    ).fillna(MAX_POINTS)
-
-    # Calculate points for the current week only
     punten_per_rijder = []
     for klasse in deelnemers['klasse'].unique():
         klasse_deelnemers = deelnemers[deelnemers['klasse'] == klasse]
@@ -58,54 +57,85 @@ def generate_klassement():
                 week_col: punten.get(rijder['bib'], MAX_POINTS)
             })
 
-    current_week_points_df = pd.DataFrame(punten_per_rijder)
+    punten_df = pd.DataFrame(punten_per_rijder)
 
-    # Update or add the current week column in klassement_df
-    klassement_df = klassement_df.merge(current_week_points_df, on='bib', how='left')
-    klassement_df[week_col] = klassement_df[week_col].fillna(klassement_df.get(week_col, MAX_POINTS))
+    if os.path.isfile(KLASSEMENT_FILE):
+        klassement_df = pd.read_excel(KLASSEMENT_FILE, sheet_name="Klassement")
+        klassement_df = klassement_df.rename(columns={
+            'Nr.': 'bib',
+            'Naam': 'naam',
+            'Klasse': 'klasse',
+            'Cat.': 'categorie'
+        })
+    else:
+        klassement_df = deelnemers[['naam', 'bib', 'klasse', 'categorie']].copy()
 
-    # Get all week columns as digits, excluding non-numeric columns
+    klassement_df = klassement_df.merge(punten_df, on='bib', how='left')
+    klassement_df[week_col] = klassement_df[week_col].fillna(MAX_POINTS)
+
     week_cols = [col for col in klassement_df.columns if str(col).isdigit()]
     week_cols = sorted(week_cols, key=int)
-
-    # Fill missing week columns with MAX_POINTS to avoid NaNs
     klassement_df[week_cols] = klassement_df[week_cols].fillna(MAX_POINTS)
 
-    # Calculate totals and period sums
-    klassement_df['Totaal'] = klassement_df[week_cols].sum(axis=1)
+    klassement_df['Totaal'] = klassement_df[week_cols].apply(lambda row: sum_without_worst(row, week_cols), axis=1)
 
-    if IS_SECOND_PERIOD_STARTED:
-        # Assuming second period starts at a certain week number
-        # Here you can define the exact week number where period 2 starts
-        second_period_start = week_cols[-1]  # Or any custom logic
-        first_period_weeks = [col for col in week_cols if int(col) < int(second_period_start)]
-        second_period_weeks = [col for col in week_cols if int(col) >= int(second_period_start)]
-    else:
-        first_period_weeks = week_cols
-        second_period_weeks = []
+    if week_cols:
+        if IS_SECOND_PERIOD_STARTED:
+            second_period_start = week_cols[-1]
+            first_period_weeks = [col for col in week_cols if int(col) < int(second_period_start)]
+            second_period_weeks = [col for col in week_cols if int(col) >= int(second_period_start)]
+        else:
+            first_period_weeks = week_cols
+            second_period_weeks = []
 
-    klassement_df['1e Periode'] = klassement_df[first_period_weeks].sum(axis=1)
-    klassement_df['2e Periode'] = klassement_df[second_period_weeks].sum(axis=1)
+        klassement_df['1e Periode'] = (
+            klassement_df[first_period_weeks].apply(lambda row: sum_without_worst(row, first_period_weeks), axis=1)
+            if first_period_weeks else 0
+        )
+        klassement_df['2e Periode'] = (
+            klassement_df[second_period_weeks].apply(lambda row: sum_without_worst(row, second_period_weeks), axis=1)
+            if second_period_weeks else 0
+        )
 
-    # Compute rank per klasse
+    # Calculate class rankings
     klassement_df['Plaats Klasse'] = (
-        klassement_df.sort_values(by=['klasse', 'Totaal'])
-        .groupby('klasse')
-        .cumcount() + 1
+        klassement_df.groupby('klasse').cumcount() + 1
     )
-
-    # Sort by klasse and total points
+    
+    # Sort by class and total points first (this determines the Excel file order)
     klassement_df = klassement_df.sort_values(by=['klasse', 'Totaal'])
 
-    # Rename columns back for Excel export
+    # Calculate category rankings based on the order they appear in the sorted dataframe
+    # Initialize all category columns with NaN first
+    for cat in ['STA', 'SEN', 'DAM']:
+        klassement_df[f'Plaats {cat}'] = pd.NA
+    
+    # Reset index to ensure we have clean sequential indexing
+    klassement_df = klassement_df.reset_index(drop=True)
+    
+    # Calculate sequential rankings for each category based on appearance order
+    for cat in ['STA', 'SEN', 'DAM']:
+        cat_mask = klassement_df['categorie'] == cat
+        if cat_mask.any():
+            # Get the indices where this category appears
+            cat_positions = klassement_df.index[cat_mask].tolist()
+            # Assign sequential rankings (1, 2, 3, etc.)
+            for i, pos in enumerate(cat_positions):
+                klassement_df.at[pos, f'Plaats {cat}'] = i + 1
+
+    klassement_df = klassement_df.sort_values(by=['klasse', 'Totaal'])
+
     klassement_df = klassement_df.rename(columns={
         'bib': 'Nr.',
         'naam': 'Naam',
         'klasse': 'Klasse',
         'categorie': 'Cat.'
     })
+    
+    # Remove the bib/Nr. column from the dataframe
+    if 'bib' in klassement_df.columns:
+        klassement_df = klassement_df.drop('bib', axis=1)
 
-    # Final column order
     final_column_order = load_template_column_order()
     if 'Plaats Klasse' not in final_column_order:
         try:
@@ -113,16 +143,24 @@ def generate_klassement():
             final_column_order.insert(klasse_idx + 1, 'Plaats Klasse')
         except ValueError:
             final_column_order.append('Plaats Klasse')
+            
+    for col in ['Plaats STA', 'Plaats SEN', 'Plaats DAM']:
+        if col not in final_column_order:
+            try:
+                cat_idx = final_column_order.index('Cat.')
+                final_column_order.insert(cat_idx + 1, col)
+            except ValueError:
+                final_column_order.append(col)
 
-    # Add any week columns not in template order at the end
-    final_cols = final_column_order + [col for col in week_cols if col not in final_column_order]
+    week_cols_in_output = [col for col in klassement_df.columns if col.isdigit()]
+    final_cols = final_column_order + [col for col in week_cols_in_output if col not in final_column_order]
     klassement_df = klassement_df[[col for col in final_cols if col in klassement_df.columns]]
 
-    # Write updated sheet, replacing only the 'Klassement' sheet
-    with pd.ExcelWriter(KLASSEMENT_FILE, engine='openpyxl', mode='a', if_sheet_exists='replace') as writer:
+    # 💾 Schrijf naar een apart Excel-bestand
+    with pd.ExcelWriter(KLASSEMENT_FILE, engine='openpyxl', mode='w') as writer:
         klassement_df.to_excel(writer, sheet_name="Klassement", index=False)
 
-    # Formatting
+    # 📊 Format Excel
     wb = load_workbook(KLASSEMENT_FILE)
     sheet = wb['Klassement']
 
@@ -144,6 +182,7 @@ def generate_klassement():
 
     wb.save(KLASSEMENT_FILE)
     print(f"✅ Klassement updated with week {current_week} in {KLASSEMENT_FILE}")
+
 
 if __name__ == '__main__':
     generate_klassement()

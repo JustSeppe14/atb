@@ -81,8 +81,15 @@ def generate_regelmatigheidscriterium():
     week_cols = [col for col in klassement_df.columns if col.isdigit()]
     week_cols = sorted(week_cols, key=int)
 
-    # Total points per rider
-    klassement_df['total'] = klassement_df[week_cols].sum(axis=1)
+    # Total points per rider, excluding the worst result
+    def sum_without_worst(row, cols):
+        results = row[cols].values
+        if len(results) > 1:
+            return results.sum() - results.max()
+        else:
+            return results.sum()
+
+    klassement_df['total'] = klassement_df[week_cols].apply(lambda row: sum_without_worst(row, week_cols), axis=1)
 
     if week_cols:
         if IS_SECOND_PERIOD_STARTED:
@@ -92,24 +99,44 @@ def generate_regelmatigheidscriterium():
             first_period_weeks = week_cols
             second_period_weeks = []
 
-        klassement_df['eerst_heft'] = klassement_df[first_period_weeks].sum(axis=1)
-        klassement_df['tweede_heft'] = klassement_df[second_period_weeks].sum(axis=1)
+        klassement_df['eerst_heft'] = (
+            klassement_df[first_period_weeks].apply(lambda row: sum_without_worst(row, first_period_weeks), axis=1)
+            if first_period_weeks else 0
+        )
+        klassement_df['tweede_heft'] = (
+            klassement_df[second_period_weeks].apply(lambda row: sum_without_worst(row, second_period_weeks), axis=1)
+            if second_period_weeks else 0
+        )
 
     # To rank riders by klasse per their current klasse (for the latest week)
-    # You can choose how to rank: by last known klasse or by baseline klasse column
-
-    # Here we rank by their klasse in the latest week:
     # Extract latest klasse for each rider
     klassement_df['current_klasse'] = klassement_df[f'Klasse_{week_cols[-1]}'] if week_cols else klassement_df['klasse']
 
+    # Sort by klasse and total points first (this determines the Excel file order)
+    klassement_df = klassement_df.sort_values(by=['current_klasse', 'total'])
+
+    # Calculate class rankings
     klassement_df['Plaats Klasse'] = (
-        klassement_df.sort_values(by=['current_klasse', 'total'])
-        .groupby('current_klasse')
-        .cumcount() + 1
+        klassement_df.groupby('current_klasse').cumcount() + 1
     )
 
-    # Sort by klasse and total points
-    klassement_df = klassement_df.sort_values(by=['current_klasse', 'total'])
+    # Calculate category rankings based on the order they appear in the sorted dataframe
+    # Initialize all category columns with NaN first
+    for cat in ['STA', 'SEN', 'DAM']:
+        klassement_df[f'Plaats {cat}'] = pd.NA
+    
+    # Reset index to ensure we have clean sequential indexing
+    klassement_df = klassement_df.reset_index(drop=True)
+    
+    # Calculate sequential rankings for each category based on appearance order
+    for cat in ['STA', 'SEN', 'DAM']:
+        cat_mask = klassement_df['categorie'] == cat
+        if cat_mask.any():
+            # Get the indices where this category appears
+            cat_positions = klassement_df.index[cat_mask].tolist()
+            # Assign sequential rankings (1, 2, 3, etc.)
+            for i, pos in enumerate(cat_positions):
+                klassement_df.at[pos, f'Plaats {cat}'] = i + 1
 
     # Rename columns back to final Excel output names
     klassement_df = klassement_df.rename(columns={
@@ -133,6 +160,14 @@ def generate_regelmatigheidscriterium():
             final_column_order.insert(klasse_idx + 1, 'Plaats Klasse')
         except ValueError:
             final_column_order.append('Plaats Klasse')
+
+    for col in ['Plaats STA', 'Plaats SEN', 'Plaats DAM']:
+        if col not in final_column_order:
+            try:
+                cat_idx = final_column_order.index('Cat.')
+                final_column_order.insert(cat_idx + 1, col)
+            except ValueError:
+                final_column_order.append(col)
 
     week_cols_in_output = [col for col in klassement_df.columns if col.isdigit()]
     final_cols = final_column_order + [col for col in week_cols_in_output if col not in final_column_order]
