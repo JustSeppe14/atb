@@ -12,7 +12,8 @@ SMTP_SERVER = 'smtp.gmail.com'
 SMTP_PORT = 587
 EMAIL_ADDRESS = os.getenv("EMAIL_ACCOUNT")      # Replace with your email
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")           # Replace with your app password or email password
-RECIPIENT = 'seppevc@hotmail.be'         # Replace with recipient's email
+EMAIL_RECIPIENTS = os.getenv("EMAIL_RECIPIENTS", "")
+RECIPIENT = [email.strip() for email in EMAIL_RECIPIENTS.split(",") if email.strip()]      # Replace with recipient's email
 
 # File to send
 ATTACHMENT_PATH = 'wedstrijd_data_2025.xlsx'
@@ -22,7 +23,7 @@ def send_email():
         msg = EmailMessage()
         msg['Subject'] = 'Wedstrijd Data 2025'
         msg['From'] = EMAIL_ADDRESS
-        msg['To'] = RECIPIENT
+        msg['To'] = ', '.join(RECIPIENT)  # Join multiple recipients with a comma
         msg.set_content(
             "Beste,\n\nIn de bijlage vindt u het aangepaste klassement voor deze week ('wedstrijd_data_2025.xlsx').\n\nMet vriendelijke groet,\nUw automatiseringsscript"
         )
