@@ -42,7 +42,7 @@ Dit project automatiseert het samenvoegen van verschillende Excel-bestanden tot 
     ```
     > **LET OP!** Gebruik een App Password als je 2FA hebt ingeschakeld.
 4. **Voeg je Excel-bestanden toe**
-Zorgt dat je je deelnemers bestand in de juiste [Deelnemers](http://_vscodecontentref_/0) map hebt staan
+Zorgt dat je je deelnemers bestand in de juiste map hebt staan
 
 ## Gebruik
 
