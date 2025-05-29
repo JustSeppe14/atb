@@ -1,25 +1,49 @@
 import os
 import pandas as pd
-from utils import load_deelnemers, load_result, get_current_week, MAX_POINTS
+from utils import load_deelnemers, load_result, MAX_POINTS
 
-TEAM_KLASSEMENT_FILE = "team_klassement_2025_DAM_only.xlsx"
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+TEAM_KLASSEMENT_FILE = os.path.join(OUTPUT_DIR, "team_klassement_2025_DAM_only.xlsx")
 IS_SECOND_PERIOD_STARTED = False  # Toggle this to True when 2nd period starts
 
 def calculate_team_klassement():
     deelnemers = load_deelnemers()
     uitslag = load_result()
-    current_week = get_current_week(TEAM_KLASSEMENT_FILE, sheet_name="TeamKlassement")
-    week_col = str(current_week)
 
-    if 'team' not in deelnemers.columns or 'categorie' not in deelnemers.columns:
-        raise ValueError("Deelnemers data must have 'team' and 'cat' columns")
+    # Filter out team '0' and empty
+    deelnemers = deelnemers[
+        deelnemers['team'].notna() &
+        (deelnemers['team'].astype(str).str.strip() != '') &
+        (deelnemers['team'].astype(str).str.strip() != '0')
+    ]
 
-    # Filter out team '0'
-    deelnemers = deelnemers[deelnemers['team'] != '0']
-
-    # Filter teams with at least one DAM rider (CAT == 'DAM')
+    # Only include teams with at least one DAM rider
     dam_teams = deelnemers[deelnemers['categorie'] == 'DAM']['team'].unique()
     deelnemers = deelnemers[deelnemers['team'].isin(dam_teams)]
+
+    # Load existing klassement or start fresh
+    if os.path.isfile(TEAM_KLASSEMENT_FILE):
+        team_klassement_df = pd.read_excel(TEAM_KLASSEMENT_FILE, sheet_name="TEAMS MIXED")
+        team_klassement_df = team_klassement_df[
+            team_klassement_df['team'].notna() &
+            (team_klassement_df['team'].astype(str).str.strip() != '') &
+            (team_klassement_df['team'].astype(str).str.strip() != '0')
+        ]
+        week_cols = [col for col in team_klassement_df.columns if col.endswith('T') and col[:-1].isdigit()]
+        if week_cols:
+            max_week_num = max(int(col[:-1]) for col in week_cols)
+            current_week = max_week_num + 1
+        else:
+            current_week = 1
+    else:
+        current_week = 1
+        teams = deelnemers['team'].unique()
+        team_klassement_df = pd.DataFrame({'team': teams})
+        week_cols = []
+
+    new_week_col = f"{current_week}T"
 
     # Calculate points per rider for current week
     punten = {}
@@ -37,49 +61,39 @@ def calculate_team_klassement():
         punten_per_rijder.append({
             'bib': rijder['bib'],
             'team': rijder['team'],
-            week_col: punten.get(rijder['bib'], MAX_POINTS)
+            current_week: punten.get(rijder['bib'], MAX_POINTS)
         })
 
     punten_df = pd.DataFrame(punten_per_rijder)
 
-    # Load or create team klassement df
-    if os.path.isfile(TEAM_KLASSEMENT_FILE):
-        team_klassement_df = pd.read_excel(TEAM_KLASSEMENT_FILE, sheet_name="TeamKlassement")
-        team_klassement_df = team_klassement_df[team_klassement_df['team'].astype(str) != '0']
-    else:
-        teams = deelnemers['team'].unique()
-        team_klassement_df = pd.DataFrame({'team': teams})
+    # Sum points per team
+    team_points_this_week = punten_df.groupby('team')[current_week].sum().reset_index()
+    team_points_this_week = team_points_this_week[
+        (team_points_this_week['team'].astype(str).str.strip() != '') &
+        (team_points_this_week['team'].astype(str).str.strip() != '0')
+    ]
+    team_points_this_week.rename(columns={current_week: new_week_col}, inplace=True)
 
-    # Identify week columns
-    week_cols = [col for col in team_klassement_df.columns if col.endswith('T') and col[:-1].isdigit()]
-    new_week_col = f"{current_week}T"
+    # Rank teams: highest points = best = lower rank number
+    team_points_this_week[new_week_col] = team_points_this_week[new_week_col].rank(method='min', ascending=False).astype(int)
 
-    # Sum points per team for this week
-    team_points_this_week = punten_df.groupby('team')[week_col].sum().reset_index()
-    team_points_this_week = team_points_this_week[team_points_this_week['team'] != '0']
-    team_points_this_week.rename(columns={week_col: new_week_col}, inplace=True)
+    # Merge week results into klassement
+    team_klassement_df = team_klassement_df.merge(team_points_this_week[['team', new_week_col]], on='team', how='outer')
 
-    # Ranking: more rider points = better = lower team points (1 is best)
-    team_points_this_week[new_week_col] = (
-        team_points_this_week[new_week_col]
-        .rank(method='min', ascending=False)
-        .fillna(len(team_points_this_week))
-        .astype(int)
-    )
+    # Clean up again
+    team_klassement_df = team_klassement_df[
+        team_klassement_df['team'].notna() &
+        (team_klassement_df['team'].astype(str).str.strip() != '') &
+        (team_klassement_df['team'].astype(str).str.strip() != '0')
+    ]
 
-    # Merge with klassement
-    team_klassement_df = team_klassement_df.merge(team_points_this_week, on='team', how='outer')
-    team_klassement_df = team_klassement_df[team_klassement_df['team'].astype(str) != '0']
-    team_klassement_df = team_klassement_df[team_klassement_df['team'].notna() & (team_klassement_df['team'].astype(str) != '')]
-
-    # Fill NA
+    # Update week_cols
     week_cols = [col for col in team_klassement_df.columns if col.endswith('T') and col[:-1].isdigit()]
     team_klassement_df[week_cols] = team_klassement_df[week_cols].fillna(0)
 
-    # Totals
+    # Totals and periods
     team_klassement_df['Totaal'] = team_klassement_df[week_cols].sum(axis=1)
 
-    # Periods
     if IS_SECOND_PERIOD_STARTED and week_cols:
         second_period_start = max([int(col[:-1]) for col in week_cols])
         first_period_weeks = [col for col in week_cols if int(col[:-1]) < second_period_start]
@@ -91,20 +105,19 @@ def calculate_team_klassement():
     team_klassement_df['1e Periode'] = team_klassement_df[first_period_weeks].sum(axis=1) if first_period_weeks else 0
     team_klassement_df['2e Periode'] = team_klassement_df[second_period_weeks].sum(axis=1) if second_period_weeks else 0
 
-    # Final ranking: lowest total team points is best
-    team_klassement_df['Plaats'] = team_klassement_df['Totaal'].rank(method='min', ascending=True).astype(int)
-    team_klassement_df = team_klassement_df.sort_values('Plaats')
+    # Final ranking
+    team_klassement_df = team_klassement_df.sort_values('Totaal')
+    team_klassement_df['Plaats'] = range(1, len(team_klassement_df) + 1)
 
-    # Output
-    team_klassement_df.rename(columns={'team': 'Team'}, inplace=True)
-    cols_order = ['Plaats', 'Team', '1e Periode', '2e Periode', 'Totaal'] + sorted(week_cols, key=lambda c: int(c[:-1]))
+    # Reorder columns
+    cols_order = ['Plaats', 'team', '1e Periode', '2e Periode', 'Totaal'] + sorted(week_cols, key=lambda c: int(c[:-1]))
     team_klassement_df = team_klassement_df[cols_order]
 
     # Save
     with pd.ExcelWriter(TEAM_KLASSEMENT_FILE, engine='openpyxl', mode='w') as writer:
-        team_klassement_df.to_excel(writer, sheet_name="TeamKlassement", index=False)
+        team_klassement_df.to_excel(writer, sheet_name="TEAMS MIXED", index=False)
 
-    print(f"✅ DAM-only team klassement updated with week {current_week} in {TEAM_KLASSEMENT_FILE}")
+    print(f"✅ DAM-only team klassement updated with week {current_week} (column {new_week_col}) in {TEAM_KLASSEMENT_FILE}")
 
 if __name__ == '__main__':
     calculate_team_klassement()
