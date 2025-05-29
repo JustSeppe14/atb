@@ -13,14 +13,15 @@ from utils import (
     RESULT_FILE,
     TEMPLATE_FILE
 )
-
-KLASSEMENT_FILE = "klassement_2025.xlsx"
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+KLASSEMENT_FILE = os.path.join(OUTPUT_DIR, "klassement_2025.xlsx")
 IS_SECOND_PERIOD_STARTED = False
 
 def generate_regelmatigheidscriterium():
     deelnemers = load_deelnemers()
     uitslag = load_result()
-    week_num = get_current_week(KLASSEMENT_FILE, sheet_name="Regelmatigheidscriterium")
+    week_num = get_current_week(KLASSEMENT_FILE, sheet_name="REGELMATIGHEIDSCRITERIUM")
     week_col = str(week_num)
 
     punten_per_rijder = []
@@ -49,7 +50,7 @@ def generate_regelmatigheidscriterium():
     categorie_df = pd.DataFrame(categorie_per_rijder)
 
     if os.path.isfile(KLASSEMENT_FILE):
-        klassement_df = pd.read_excel(KLASSEMENT_FILE, sheet_name="Regelmatigheidscriterium")
+        klassement_df = pd.read_excel(KLASSEMENT_FILE, sheet_name="REGELMATIGHEIDSCRITERIUM")
 
         # Rename columns for internal consistency if needed
         klassement_df = klassement_df.rename(columns={
@@ -175,11 +176,11 @@ def generate_regelmatigheidscriterium():
 
     # Write to Excel (overwrite with updated sheet)
     with pd.ExcelWriter(KLASSEMENT_FILE, engine='openpyxl', mode='w') as writer:
-        klassement_df.to_excel(writer, sheet_name="Regelmatigheidscriterium", index=False)
+        klassement_df.to_excel(writer, sheet_name="REGELMATIGHEIDSCRITERIUM", index=False)
 
     # Formatting
     wb = load_workbook(KLASSEMENT_FILE)
-    sheet = wb['Regelmatigheidscriterium']
+    sheet = wb['REGELMATIGHEIDSCRITERIUM']
 
     pink_fill = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
     green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")

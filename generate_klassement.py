@@ -13,9 +13,11 @@ from utils import (
     RESULT_FILE,
     TEMPLATE_FILE
 )
-
-KLASSEMENT_FILE = "klassement_totaal_2025.xlsx"  # 👈 Nieuw apart bestand
+OUTPUT_DIR = "output"
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+KLASSEMENT_FILE = os.path.join(OUTPUT_DIR, "klassement_totaal_2025.xlsx")
 IS_SECOND_PERIOD_STARTED = False
+
 
 
 def sum_without_worst(row, cols):
@@ -29,7 +31,7 @@ def sum_without_worst(row, cols):
 def generate_klassement():
     deelnemers = load_deelnemers()
     uitslag = load_result()
-    current_week = get_current_week(KLASSEMENT_FILE, sheet_name="Klassement")
+    current_week = get_current_week(KLASSEMENT_FILE, sheet_name="KLASSEMENT")
     week_col = str(current_week)
 
     deelnemers = deelnemers.rename(columns={
@@ -60,7 +62,7 @@ def generate_klassement():
     punten_df = pd.DataFrame(punten_per_rijder)
 
     if os.path.isfile(KLASSEMENT_FILE):
-        klassement_df = pd.read_excel(KLASSEMENT_FILE, sheet_name="Klassement")
+        klassement_df = pd.read_excel(KLASSEMENT_FILE, sheet_name="KLASSEMENT")
         klassement_df = klassement_df.rename(columns={
             'Nr.': 'bib',
             'Naam': 'naam',
@@ -158,11 +160,11 @@ def generate_klassement():
 
     # 💾 Schrijf naar een apart Excel-bestand
     with pd.ExcelWriter(KLASSEMENT_FILE, engine='openpyxl', mode='w') as writer:
-        klassement_df.to_excel(writer, sheet_name="Klassement", index=False)
+        klassement_df.to_excel(writer, sheet_name="KLASSEMENT", index=False)
 
     # 📊 Format Excel
     wb = load_workbook(KLASSEMENT_FILE)
-    sheet = wb['Klassement']
+    sheet = wb['KLASSEMENT']
 
     pink_fill = PatternFill(start_color="FFC0CB", end_color="FFC0CB", fill_type="solid")
     green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")

@@ -16,7 +16,20 @@ def run_generate_klassement():
         print("✅ Klassement generated successfully.")
     except subprocess.CalledProcessError as e:
         print(f"❌ Failed to generate Klassement: {e}")
+
+def run_teams_sta():
+    try:
+        subprocess.run([sys.executable, 'team_klassement.py'], check=True)
+        print("✅ Team klassement (STA) generated successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to generate Team klassement (STA): {e}")
         
+def run_teams_dam():
+    try:
+        subprocess.run([sys.executable, 'team_DAM_klassement.py'], check=True)
+        print("✅ Team klassement (DAM) generated successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to generate Team klassement (DAM): {e}")
 def run_combine():
     try:
         # Run the generate_klassement.py script
@@ -36,8 +49,10 @@ def run_utils():
 if __name__ == '__main__':
     print("Starting the generation process...")
 
-    run_generate_regelmatigheidscriterium()
     run_generate_klassement()
+    run_generate_regelmatigheidscriterium()
+    run_teams_sta()
+    run_teams_dam()
     
     run_combine()
 
