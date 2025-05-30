@@ -1,6 +1,7 @@
 import subprocess
 import sys
 import logging
+from utils import backup_deelnemers_file
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -80,5 +81,11 @@ if __name__ == '__main__':
     run_teams_dam()
     run_combine()
     run_send_mail()
+    
+    try: 
+        backup_deelnemers_file()
+        logger.info("✅ Deelnemers file backed up.")
+    except Exception as e:
+        logger.error(f"❌ Error backing up deelnemers file: {e}")
 
     logger.info("Generation process completed.")

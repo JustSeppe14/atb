@@ -1,6 +1,8 @@
 import pandas as pd
 import os
 from openpyxl import load_workbook
+import shutil
+import datetime
 
 
 DEELNEMERS_FILE = "Deelnemers/deelnemerslijst 2025.xlsx"
@@ -52,3 +54,45 @@ def get_current_week(overall_path, sheet_name):
 def load_template_column_order():
     template_df = pd.read_excel(TEMPLATE_FILE, sheet_name=0, nrows=0)
     return [col for col in template_df.columns if not str(col).startswith("Unnamed")]
+
+def backup_deelnemers_file():
+    """
+    Backup the deelnemers file to a new file with a timestamp in the filename.
+    """
+    backup_dir = "Deelnemers/backups"
+    os.makedirs(backup_dir, exist_ok=True)
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    backup_path = os.path.join(backup_dir, f"deelnemerslijst_2025_{timestamp}.xlsx")
+    shutil.copy(DEELNEMERS_FILE, backup_path)
+    
+def detect_klasse_wissels_met_backup():
+    backup_dir = "Deelnemers/backups"
+    if not os.path.exists(backup_dir):
+        return {}
+    
+    # Zoek de meest recente backup
+    backups = [f for f in os.listdir(backup_dir) if f.endswith('.xlsx')]
+    if not backups:
+        return {}
+    
+    latest_backup = max(backups, key=lambda f: os.path.getmtime(os.path.join(backup_dir, f)))
+    backup_path = os.path.join(backup_dir, latest_backup)
+    
+     # Laad beide lijsten
+    df_now = pd.read_excel(DEELNEMERS_FILE, header=4)
+    df_now.columns = df_now.columns.str.strip().str.lower()
+    df_now = df_now.rename(columns={'number': 'bib', 'klasse': 'klasse'})
+    df_now = df_now.dropna(subset=['bib', 'klasse'])
+    df_now['bib'] = df_now['bib'].astype(int)
+
+    df_old = pd.read_excel(backup_path, header=4)
+    df_old.columns = df_old.columns.str.strip().str.lower()
+    df_old = df_old.rename(columns={'number': 'bib', 'klasse': 'klasse'})
+    df_old = df_old.dropna(subset=['bib', 'klasse'])
+    df_old['bib'] = df_old['bib'].astype(int)
+
+    # Vergelijk klasse per bib
+    merged = pd.merge(df_old[['bib', 'klasse']], df_now[['bib', 'klasse']], on='bib', suffixes=('_oud', '_nieuw'))
+    wissels = merged[merged['klasse_oud'] != merged['klasse_nieuw']]
+    return {row['bib']: (row['klasse_oud'], row['klasse_nieuw']) for _, row in wissels.iterrows()}
+    

@@ -3,6 +3,9 @@ import pandas as pd
 from utils import load_deelnemers, load_result, MAX_POINTS
 
 import logging
+import shutil
+from datetime import datetime
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -144,9 +147,17 @@ def calculate_team_klassement():
         cols_order = ['Plaats', 'team', '1e Periode', '2e Periode', 'Totaal'] + sorted(week_cols, key=lambda c: int(c[:-1]))
         team_klassement_df = team_klassement_df[cols_order]
 
-        # Save
+        # Save main file in output
         with pd.ExcelWriter(TEAM_KLASSEMENT_FILE, engine='openpyxl', mode='w') as writer:
             team_klassement_df.to_excel(writer, sheet_name="TEAMS MIXED", index=False)
+
+        # --- Save a backup copy with timestamp ---
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_dir = os.path.join("output_backups", timestamp)
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_file = os.path.join(backup_dir, f"team_klassement_2025_DAM_only_{timestamp}.xlsx")
+        shutil.copy2(TEAM_KLASSEMENT_FILE, backup_file)
+        logger.info(f"📁 Backup saved to {backup_file}")
 
         logger.info(f"✅ DAM-only team klassement updated with week {current_week} (column {new_week_col}) in {TEAM_KLASSEMENT_FILE}")
 

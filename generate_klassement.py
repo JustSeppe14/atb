@@ -2,8 +2,10 @@ import pandas as pd
 import os
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
-
 import logging
+import shutil
+from datetime import datetime
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -12,6 +14,7 @@ from utils import (
     load_result,
     get_current_week,
     load_template_column_order,
+    detect_klasse_wissels_met_backup,
     MAX_POINTS,
     DEELNEMERS_FILE,
     RESULT_FILE,
@@ -22,15 +25,12 @@ os.makedirs(OUTPUT_DIR, exist_ok=True)
 KLASSEMENT_FILE = os.path.join(OUTPUT_DIR, "klassement_totaal_2025.xlsx")
 IS_SECOND_PERIOD_STARTED = False
 
-
-
 def sum_without_worst(row, cols):
     results = row[cols].values
     if len(results) > 1:
         return results.sum() - results.max()
     else:
         return results.sum()
-
 
 def generate_klassement():
     try:
@@ -40,7 +40,6 @@ def generate_klassement():
         week_col = str(current_week)
         
         logger.info(f"Generating klassement for week {week_col}")
-
 
         deelnemers = deelnemers.rename(columns={
             'Nr.': 'bib',
@@ -87,6 +86,15 @@ def generate_klassement():
         week_cols = sorted(week_cols, key=int)
         klassement_df[week_cols] = klassement_df[week_cols].fillna(MAX_POINTS)
 
+        # --- Detect klasse wissels en pas punten aan ---
+        wissels = detect_klasse_wissels_met_backup()
+        for bib, (oude_klasse, nieuwe_klasse) in wissels.items():
+            if bib in klassement_df['bib'].values:
+                idx = klassement_df.index[klassement_df['bib'] == bib][0]
+                for col in week_cols:
+                    if int(col) < int(week_col):
+                        klassement_df.at[idx, col] = 50  # 50 punten voor oude wedstrijden
+
         klassement_df['Totaal'] = klassement_df[week_cols].apply(lambda row: sum_without_worst(row, week_cols), axis=1)
 
         if week_cols:
@@ -108,28 +116,21 @@ def generate_klassement():
             )
 
         # Calculate class rankings
-    # Calculate class rankings based on 'Totaal' within each 'klasse'
         klassement_df['Plaats Klasse'] = klassement_df.groupby('klasse')['Totaal'].rank(method='min', ascending=True).astype(int)
 
-        
         # Sort by class and total points first (this determines the Excel file order)
         klassement_df = klassement_df.sort_values(by=['klasse', 'Totaal'])
 
         # Calculate category rankings based on the order they appear in the sorted dataframe
-        # Initialize all category columns with NaN first
         for cat in ['STA', 'SEN', 'DAM']:
             klassement_df[f'Plaats {cat}'] = pd.NA
         
-        # Reset index to ensure we have clean sequential indexing
         klassement_df = klassement_df.reset_index(drop=True)
         
-        # Calculate sequential rankings for each category based on appearance order
         for cat in ['STA', 'SEN', 'DAM']:
             cat_mask = klassement_df['categorie'] == cat
             if cat_mask.any():
-                # Get the indices where this category appears
                 cat_positions = klassement_df.index[cat_mask].tolist()
-                # Assign sequential rankings (1, 2, 3, etc.)
                 for i, pos in enumerate(cat_positions):
                     klassement_df.at[pos, f'Plaats {cat}'] = i + 1
 
@@ -142,7 +143,6 @@ def generate_klassement():
             'categorie': 'Cat.'
         })
         
-        # Remove the bib/Nr. column from the dataframe
         if 'bib' in klassement_df.columns:
             klassement_df = klassement_df.drop('bib', axis=1)
 
@@ -166,11 +166,9 @@ def generate_klassement():
         final_cols = final_column_order + [col for col in week_cols_in_output if col not in final_column_order]
         klassement_df = klassement_df[[col for col in final_cols if col in klassement_df.columns]]
 
-        # 💾 Schrijf naar een apart Excel-bestand
         with pd.ExcelWriter(KLASSEMENT_FILE, engine='openpyxl', mode='w') as writer:
             klassement_df.to_excel(writer, sheet_name="KLASSEMENT", index=False)
 
-        # 📊 Format Excel
         wb = load_workbook(KLASSEMENT_FILE)
         sheet = wb['KLASSEMENT']
 
@@ -192,8 +190,18 @@ def generate_klassement():
 
         wb.save(KLASSEMENT_FILE)
         logger.info(f"✅ Klassement updated with week {current_week} in {KLASSEMENT_FILE}")
+
+        # --- Save a backup copy with timestamp ---
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_dir = os.path.join("output_backups", timestamp)
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_file = os.path.join(backup_dir, f"klassement_totaal_2025_{timestamp}.xlsx")
+        shutil.copy2(KLASSEMENT_FILE, backup_file)
+        logger.info(f"📁 Backup saved to {backup_file}")
+
     except Exception as e:
         logger.error(f"❌ Error in generate_klassement: {e}")
         raise
+
 if __name__ == '__main__':
     generate_klassement()

@@ -2,8 +2,9 @@ import pandas as pd
 import os
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
-
 import logging
+import shutil
+from datetime import datetime
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -12,6 +13,7 @@ from utils import (
     load_result,
     get_current_week,
     load_template_column_order,
+    detect_klasse_wissels_met_backup,
     MAX_POINTS,
     DEELNEMERS_FILE,
     RESULT_FILE,
@@ -30,7 +32,6 @@ def generate_regelmatigheidscriterium():
         week_col = str(week_num)
         
         logger.info(f"Generating regelmatigheidscriterium for week {week_col}")
-
 
         punten_per_rijder = []
         klasse_per_rijder = []
@@ -59,8 +60,6 @@ def generate_regelmatigheidscriterium():
 
         if os.path.isfile(KLASSEMENT_FILE):
             klassement_df = pd.read_excel(KLASSEMENT_FILE, sheet_name="REGELMATIGHEIDSCRITERIUM")
-
-            # Rename columns for internal consistency if needed
             klassement_df = klassement_df.rename(columns={
                 'Nr.': 'bib',
                 'Naam': 'naam',
@@ -73,24 +72,26 @@ def generate_regelmatigheidscriterium():
         else:
             klassement_df = deelnemers[['naam', 'bib', 'klasse', 'categorie']].copy()
 
-        # Merge new week points and klasse/categorie separately without overwriting old weeks
         klassement_df = klassement_df.merge(punten_df, on='bib', how='left')
         klassement_df = klassement_df.merge(klasse_df, on='bib', how='left')
         klassement_df = klassement_df.merge(categorie_df, on='bib', how='left')
 
-        # Fill missing points for new week with MAX_POINTS
         klassement_df[week_col] = klassement_df[week_col].fillna(MAX_POINTS)
-
-        # Make sure all previous klasse/categorie columns are preserved and new ones added
-        # Fill missing new week klasse/categorie from previous values or leave as is
         klassement_df[f'Klasse_{week_col}'] = klassement_df[f'Klasse_{week_col}'].fillna('Unknown')
         klassement_df[f'Cat_{week_col}'] = klassement_df[f'Cat_{week_col}'].fillna('Unknown')
 
-        # Get all week number columns (only point columns)
         week_cols = [col for col in klassement_df.columns if col.isdigit()]
         week_cols = sorted(week_cols, key=int)
 
-        # Total points per rider, excluding the worst result
+        # --- Detect klasse wissels en pas punten aan ---
+        wissels = detect_klasse_wissels_met_backup()
+        for bib, (oude_klasse, nieuwe_klasse) in wissels.items():
+            if bib in klassement_df['bib'].values:
+                idx = klassement_df.index[klassement_df['bib'] == bib][0]
+                for col in week_cols:
+                    if int(col) < int(week_col):
+                        klassement_df.at[idx, col] = 50  # 50 punten voor oude wedstrijden
+
         def sum_without_worst(row, cols):
             results = row[cols].values
             if len(results) > 1:
@@ -117,37 +118,24 @@ def generate_regelmatigheidscriterium():
                 if second_period_weeks else 0
             )
 
-        # To rank riders by klasse per their current klasse (for the latest week)
-        # Extract latest klasse for each rider
         klassement_df['current_klasse'] = klassement_df[f'Klasse_{week_cols[-1]}'] if week_cols else klassement_df['klasse']
-
-        # Sort by klasse and total points first (this determines the Excel file order)
         klassement_df = klassement_df.sort_values(by=['current_klasse', 'total'])
-
-        # Calculate class rankings
         klassement_df['Plaats Klasse'] = (
             klassement_df.groupby('current_klasse').cumcount() + 1
         )
 
-        # Calculate category rankings based on the order they appear in the sorted dataframe
-        # Initialize all category columns with NaN first
         for cat in ['STA', 'SEN', 'DAM']:
             klassement_df[f'Plaats {cat}'] = pd.NA
         
-        # Reset index to ensure we have clean sequential indexing
         klassement_df = klassement_df.reset_index(drop=True)
         
-        # Calculate sequential rankings for each category based on appearance order
         for cat in ['STA', 'SEN', 'DAM']:
             cat_mask = klassement_df['categorie'] == cat
             if cat_mask.any():
-                # Get the indices where this category appears
                 cat_positions = klassement_df.index[cat_mask].tolist()
-                # Assign sequential rankings (1, 2, 3, etc.)
                 for i, pos in enumerate(cat_positions):
                     klassement_df.at[pos, f'Plaats {cat}'] = i + 1
 
-        # Rename columns back to final Excel output names
         klassement_df = klassement_df.rename(columns={
             'bib': 'Nr.',
             'naam': 'Naam',
@@ -158,10 +146,8 @@ def generate_regelmatigheidscriterium():
             'tweede_heft': '2e Periode'
         })
 
-        # Add the current_klasse column for debugging or remove it before saving
         klassement_df.drop(columns=['current_klasse'], inplace=True)
 
-        # Determine final column order
         final_column_order = load_template_column_order()
         if 'Plaats Klasse' not in final_column_order:
             try:
@@ -182,11 +168,10 @@ def generate_regelmatigheidscriterium():
         final_cols = final_column_order + [col for col in week_cols_in_output if col not in final_column_order]
         klassement_df = klassement_df[[col for col in final_cols if col in klassement_df.columns]]
 
-        # Write to Excel (overwrite with updated sheet)
+        # Save main file in output
         with pd.ExcelWriter(KLASSEMENT_FILE, engine='openpyxl', mode='w') as writer:
             klassement_df.to_excel(writer, sheet_name="REGELMATIGHEIDSCRITERIUM", index=False)
 
-        # Formatting
         wb = load_workbook(KLASSEMENT_FILE)
         sheet = wb['REGELMATIGHEIDSCRITERIUM']
 
@@ -194,13 +179,11 @@ def generate_regelmatigheidscriterium():
         green_fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
         blue_fill = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")
 
-        # Highlight DAM rows pink
         for row in sheet.iter_rows(min_row=2, max_row=sheet.max_row):
             if row[3].value == 'DAM':
                 for cell in row:
                     cell.fill = pink_fill
 
-        # Highlight week columns green for <=4 and blue otherwise
         header = [cell.value for cell in sheet[1]]
         for idx, col_name in enumerate(header, start=1):
             if str(col_name).isdigit():
@@ -210,6 +193,15 @@ def generate_regelmatigheidscriterium():
 
         wb.save(KLASSEMENT_FILE)
         logger.info(f"✅ Week {week_num} toegevoegd aan {KLASSEMENT_FILE}")
+
+        # --- Save a backup copy with timestamp ---
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_dir = os.path.join("output_backups", timestamp)
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_file = os.path.join(backup_dir, f"klassement_2025_{timestamp}.xlsx")
+        shutil.copy2(KLASSEMENT_FILE, backup_file)
+        logger.info(f"📁 Backup saved to {backup_file}")
+
     except Exception as e:
         logger.error(f"❌ Error in generate_regelmatigheidscriterium: {e}")
         raise
