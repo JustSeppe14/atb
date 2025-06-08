@@ -74,7 +74,7 @@ def run_utils():
 if __name__ == '__main__':
     logger.info("Starting the generation process...")
 
-    run_search_mail()
+    # run_search_mail()
     run_generate_klassement()
     run_generate_regelmatigheidscriterium()
     run_teams_sta()
