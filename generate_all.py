@@ -80,7 +80,7 @@ if __name__ == '__main__':
     run_teams_sta()
     run_teams_dam()
     run_combine()
-    run_send_mail()
+    # run_send_mail()
     
     try: 
         backup_deelnemers_file()
