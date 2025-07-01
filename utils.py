@@ -2,7 +2,7 @@ import pandas as pd
 import os
 from openpyxl import load_workbook
 import shutil
-import datetime
+from datetime import datetime
 
 
 DEELNEMERS_FILE = "Deelnemers/deelnemerslijst 2025.xlsx"

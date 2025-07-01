@@ -28,16 +28,14 @@ Dit project automatiseert het samenvoegen van verschillende Excel-bestanden tot 
    ```
 
 3. **.env bestand instellen**
-   - Er is een voorbeeldbestand `.env.copy` aanwezig.
-   - Maak een kopie van dit bestand en hernoem het naar `.env`:
-     ```
-     copy .env.copy .env
-     ```
-   - Open `.env` en vul de juiste waarden in:
-     ```
+   - Er is een voorbeeldbestand `.env copy` aanwezig.
+   - Hernoem dit bestand naar `.env` en vul de nodige informatie in (zie onder).
+   - ```
      EMAIL_ACCOUNT=je.email@provider.com
      EMAIL_PASSWORD=je_app_wachtwoord_of_email_wachtwoord
      EMAIL_RECIPIENTS=ontvanger1@provider.com,ontvanger2@provider.com
+     GOOGLE_SHEETS_ID=
+     GOOGLE_SHEETS_GID=
      ```
      > **LET OP!** Gebruik een App Password als je 2FA hebt ingeschakeld.
 

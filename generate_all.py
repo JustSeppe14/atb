@@ -98,6 +98,14 @@ def run_send_mail():
     except Exception as e:
         logger.error(f"❌ Error sending mail: {e}")
         raise
+    
+def run_deelnemers_file():
+    try:
+        subprocess.run([sys.executable, 'download_deelnemers_file.py'], check=True)
+        logger.info("✅ Deelnemers file downloaded successfully.")
+    except Exception as e:
+        logger.error(f"❌ Error downloading deelnemers file: {e}")
+        raise
 
 def run_utils():
     try:
@@ -112,6 +120,8 @@ if __name__ == '__main__':
     
     # Ask about second period status at the beginning
     ask_second_period_status()
+    
+    run_deelnemers_file()
 
     run_search_mail()
     run_generate_klassement()
