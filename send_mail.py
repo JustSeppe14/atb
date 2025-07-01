@@ -12,8 +12,8 @@ SMTP_SERVER = 'smtp.gmail.com'
 SMTP_PORT = 587
 EMAIL_ADDRESS = os.getenv("EMAIL_ACCOUNT")      # Replace with your email
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")           # Replace with your app password or email password
-EMAIL_RECIPIENTS = os.getenv("EMAIL_RECIPIENTS", "")
-RECIPIENT = [email.strip() for email in EMAIL_RECIPIENTS.split(",") if email.strip()]      # Replace with recipient's email
+EMAIL_RECIPIENTS = os.getenv("EMAIL_RECIPIENTS", "")  # This returns a string
+RECIPIENT = [email.strip() for email in EMAIL_RECIPIENTS.split(",") if email.strip()]  # This works
 
 # File to send
 ATTACHMENT_PATH = 'wedstrijd_data_2025.xlsx'

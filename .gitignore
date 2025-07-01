@@ -1,5 +1,6 @@
 ./Result/*
 ./wedstrijd_data_2025.xlsx
 ./output/*
+./output_backup/*
 .env
 .last_email_id

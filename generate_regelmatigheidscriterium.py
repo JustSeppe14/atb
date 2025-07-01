@@ -14,6 +14,7 @@ from utils import (
     get_current_week,
     load_template_column_order,
     detect_klasse_wissels_met_backup,
+    backup_file,
     MAX_POINTS,
     DEELNEMERS_FILE,
     RESULT_FILE,
@@ -22,7 +23,7 @@ from utils import (
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 KLASSEMENT_FILE = os.path.join(OUTPUT_DIR, "klassement_2025.xlsx")
-IS_SECOND_PERIOD_STARTED = False
+IS_SECOND_PERIOD_STARTED = os.environ.get('IS_SECOND_PERIOD_STARTED', 'False').lower() == 'true'
 
 def generate_regelmatigheidscriterium():
     try:
@@ -194,13 +195,9 @@ def generate_regelmatigheidscriterium():
         wb.save(KLASSEMENT_FILE)
         logger.info(f"✅ Week {week_num} toegevoegd aan {KLASSEMENT_FILE}")
 
-        # --- Save a backup copy with timestamp ---
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_dir = os.path.join("output_backups", timestamp)
-        os.makedirs(backup_dir, exist_ok=True)
-        backup_file = os.path.join(backup_dir, f"klassement_2025_{timestamp}.xlsx")
-        shutil.copy2(KLASSEMENT_FILE, backup_file)
-        logger.info(f"📁 Backup saved to {backup_file}")
+        # --- Save backup using shared backup system ---
+        backup_path = backup_file(KLASSEMENT_FILE, f"regelmatigheids_criterium_{week_num}.xlsx")
+        logger.info(f"📁 Backup saved to {backup_path}")
 
     except Exception as e:
         logger.error(f"❌ Error in generate_regelmatigheidscriterium: {e}")

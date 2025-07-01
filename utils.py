@@ -9,6 +9,7 @@ DEELNEMERS_FILE = "Deelnemers/deelnemerslijst 2025.xlsx"
 RESULT_FILE = "Result/finish.xlsx"
 TEMPLATE_FILE = "Template/klassement.xlsx"
 MAX_POINTS = 80
+_CURRENT_BACKUP_DIR = None
 
 def load_deelnemers():
     df = pd.read_excel(DEELNEMERS_FILE, header=4)
@@ -95,4 +96,23 @@ def detect_klasse_wissels_met_backup():
     merged = pd.merge(df_old[['bib', 'klasse']], df_now[['bib', 'klasse']], on='bib', suffixes=('_oud', '_nieuw'))
     wissels = merged[merged['klasse_oud'] != merged['klasse_nieuw']]
     return {row['bib']: (row['klasse_oud'], row['klasse_nieuw']) for _, row in wissels.iterrows()}
+
+def get_current_backup_dir():
+    """Get or create the backup directory for the current run."""
+    global _CURRENT_BACKUP_DIR
+    if _CURRENT_BACKUP_DIR is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        _CURRENT_BACKUP_DIR = os.path.join("output_backups", timestamp)
+        os.makedirs(_CURRENT_BACKUP_DIR, exist_ok=True)
+    return _CURRENT_BACKUP_DIR
+
+def backup_file(source_file, backup_name=None):
+    """Backup a file to the current run's backup directory."""
+    backup_dir = get_current_backup_dir()
+    if backup_name is None:
+        backup_name = os.path.basename(source_file)
+    backup_file_path = os.path.join(backup_dir, backup_name)
+    shutil.copy2(source_file, backup_file_path)
+    return backup_file_path
+
     

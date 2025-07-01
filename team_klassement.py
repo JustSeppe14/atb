@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from utils import load_deelnemers, load_result, MAX_POINTS
+from utils import load_deelnemers, load_result, MAX_POINTS, backup_file
 
 import logging
 import shutil
@@ -13,7 +13,7 @@ OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 TEAM_KLASSEMENT_FILE = os.path.join(OUTPUT_DIR, "team_klassement_2025.xlsx")
-IS_SECOND_PERIOD_STARTED = False  # Toggle this to True when 2nd period starts
+IS_SECOND_PERIOD_STARTED = os.environ.get('IS_SECOND_PERIOD_STARTED', 'False').lower() == 'true'
 
 def calculate_team_klassement():
     try:
@@ -129,14 +129,9 @@ def calculate_team_klassement():
         with pd.ExcelWriter(TEAM_KLASSEMENT_FILE, engine='openpyxl', mode='w') as writer:
             team_klassement_df.to_excel(writer, sheet_name="TEAMS STA", index=False)
 
-        # --- Save a backup copy with timestamp ---
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_dir = os.path.join("output_backups", timestamp)
-        os.makedirs(backup_dir, exist_ok=True)
-        backup_file = os.path.join(backup_dir, f"team_klassement_2025_{timestamp}.xlsx")
-        import shutil
-        shutil.copy2(TEAM_KLASSEMENT_FILE, backup_file)
-        logger.info(f"📁 Backup saved to {backup_file}")
+         # --- Save backup using shared backup system ---
+        backup_path = backup_file(TEAM_KLASSEMENT_FILE, f"team_klassement_2025_week_{current_week}.xlsx")
+        logger.info(f"📁 Backup saved to {backup_path}")
 
         logger.info(f"✅ Team klassement updated with week {current_week} (column {new_week_col}) in {TEAM_KLASSEMENT_FILE}")
     except Exception as e:

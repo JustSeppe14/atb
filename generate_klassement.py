@@ -15,6 +15,7 @@ from utils import (
     get_current_week,
     load_template_column_order,
     detect_klasse_wissels_met_backup,
+    backup_file,
     MAX_POINTS,
     DEELNEMERS_FILE,
     RESULT_FILE,
@@ -23,14 +24,18 @@ from utils import (
 OUTPUT_DIR = "output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 KLASSEMENT_FILE = os.path.join(OUTPUT_DIR, "klassement_totaal_2025.xlsx")
-IS_SECOND_PERIOD_STARTED = False
+IS_SECOND_PERIOD_STARTED = os.environ.get('IS_SECOND_PERIOD_STARTED', 'False').lower() == 'true'
 
-def sum_without_worst(row, cols):
+def sum_best_50_percent(row, cols):
     results = row[cols].values
-    if len(results) > 1:
-        return results.sum() - results.max()
-    else:
-        return results.sum()
+    if len(results) == 0:
+        return 0
+    
+    sorted_results = sorted(results)
+    
+    num_to_include = max(1, len(results) // 2)
+    
+    return sum(sorted_results[:num_to_include])
 
 def generate_klassement():
     try:
@@ -95,7 +100,7 @@ def generate_klassement():
                     if int(col) < int(week_col):
                         klassement_df.at[idx, col] = 50  # 50 punten voor oude wedstrijden
 
-        klassement_df['Totaal'] = klassement_df[week_cols].apply(lambda row: sum_without_worst(row, week_cols), axis=1)
+        klassement_df['Totaal'] = klassement_df[week_cols].apply(lambda row: sum_best_50_percent(row, week_cols), axis=1)
 
         if week_cols:
             if IS_SECOND_PERIOD_STARTED:
@@ -107,11 +112,11 @@ def generate_klassement():
                 second_period_weeks = []
 
             klassement_df['1e Periode'] = (
-                klassement_df[first_period_weeks].apply(lambda row: sum_without_worst(row, first_period_weeks), axis=1)
+                klassement_df[first_period_weeks].apply(lambda row: sum_best_50_percent(row, first_period_weeks), axis=1)
                 if first_period_weeks else 0
             )
             klassement_df['2e Periode'] = (
-                klassement_df[second_period_weeks].apply(lambda row: sum_without_worst(row, second_period_weeks), axis=1)
+                klassement_df[second_period_weeks].apply(lambda row: sum_best_50_percent(row, second_period_weeks), axis=1)
                 if second_period_weeks else 0
             )
 
@@ -191,13 +196,9 @@ def generate_klassement():
         wb.save(KLASSEMENT_FILE)
         logger.info(f"✅ Klassement updated with week {current_week} in {KLASSEMENT_FILE}")
 
-        # --- Save a backup copy with timestamp ---
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        backup_dir = os.path.join("output_backups", timestamp)
-        os.makedirs(backup_dir, exist_ok=True)
-        backup_file = os.path.join(backup_dir, f"klassement_totaal_2025_{timestamp}.xlsx")
-        shutil.copy2(KLASSEMENT_FILE, backup_file)
-        logger.info(f"📁 Backup saved to {backup_file}")
+        # --- Save backup using shared backup system ---
+        backup_path = backup_file(KLASSEMENT_FILE, f"klassement_totaal_2025_week_{current_week}.xlsx")
+        logger.info(f"📁 Backup saved to {backup_path}")
 
     except Exception as e:
         logger.error(f"❌ Error in generate_klassement: {e}")
